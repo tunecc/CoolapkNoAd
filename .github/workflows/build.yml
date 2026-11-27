@@ -54,6 +54,6 @@ jobs:
             gh release upload "$TAG" out/*.deb --clobber
           else
             gh release create "$TAG" out/*.deb \
-              --title "$TAG — 酷安 16.7.3 去广告" \
+              --title "$TAG" \
               --notes "适配酷安 16.7.3（build 2611121）。roothide 为实测产物，rootful / rootless 未在真机验证。"
           fi
