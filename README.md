@@ -21,6 +21,8 @@ export THEOS=~/theos-roothide
 
 需要其它产物线：`./scripts/build_packages.sh all`（rootful / rootless / roothide）。
 
+推送 `v*` tag 或手动触发时，GitHub Actions 会构建三条产物线并上传到 Release（见 `.github/workflows/build.yml`）。
+
 ## 其他产物线
 
 ```bash

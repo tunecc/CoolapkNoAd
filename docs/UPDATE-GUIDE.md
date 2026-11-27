@@ -89,9 +89,10 @@ CACHookObserve("Cls", "sel", "TAG");                                            
 ## 6. 发版
 
 ```bash
-# 改 control 里的 Version，然后
-./scripts/build_packages.sh roothide
-# 产物在 out/，tag 与 GitHub Release 同步
+# 1) 改 control 里的 Version
+# 2) 本地构建三条产物线（会走规范里的验收）
+./scripts/build_packages.sh all
+# 3) 打 tag：推 tag 会触发 GitHub Actions 构建并上传 Release
 git tag vX.Y.Z && git push --tags
 ```
 
