@@ -1,0 +1,9 @@
+Package: com.tune.coolapk.noads
+Name: 酷安 NoAd
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: 酷安去广告（开屏 / 信息流 / 详情页广告），基于酷安 16.7.3 适配
+Maintainer: Tune
+Author: Tune
+Section: Tweaks
+Depends: mobilesubstrate

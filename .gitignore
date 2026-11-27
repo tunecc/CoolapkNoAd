@@ -1,0 +1,13 @@
+# 构建产物
+packages/
+out/
+.theos/
+*.deb
+*.dylib
+
+# 系统与编辑器
+.DS_Store
+*.swp
+
+# 导出的调试符号
+*.dSYM/
