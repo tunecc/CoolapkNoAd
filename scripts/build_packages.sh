@@ -41,7 +41,7 @@ while ! mkdir "$LOCK_DIR" 2>/dev/null; do
         rm -rf "$LOCK_DIR"
         continue
     fi
-    echo "另一个打包流程正在运行（$LOCK_DIR），等待中…"
+    echo "另一个打包流程正在运行（${LOCK_DIR}），等待中…"
     sleep 2
 done
 echo $$ > "$LOCK_DIR/pid"

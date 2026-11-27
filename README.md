@@ -21,6 +21,23 @@ export THEOS=~/theos-roothide
 
 需要其它产物线：`./scripts/build_packages.sh all`（rootful / rootless / roothide）。
 
+## 其他产物线
+
+```bash
+./scripts/build_packages.sh all
+# out/CoolapkNoAd_<版本>_rootful_arm.deb     （iphoneos-arm，安装根 Applications/Library/usr）
+# out/CoolapkNoAd_<版本>_rootless_arm64.deb （iphoneos-arm64，安装根 var/jb）
+# out/CoolapkNoAd_<版本>_roothide_arm64e.deb（iphoneos-arm64e，@loader_path/.jbroot）
+```
+
+> 目前只有 roothide 线在真机上实测；rootful / rootless 包结构与链接语义已按规范验收，但未做设备安装验证。
+
+## 正式版不产生日志
+
+正式构建（`-DCAC_DEBUG` 未开启）里所有日志能力在编译期消除：不建日志文件、不写 `NSLog`、
+拦截函数内不做任何字符串处理，只有 `return 0` / 丢弃参数等必要动作。
+需要排障时用 `./build.sh debug`，它会额外写 `<容器>/tmp/CAC.log` 与安装报告。
+
 ## 安装
 
 用 Sileo / Zebra / Filza 安装 `out/` 里的 deb，安装后重启酷安（或重启 SpringBoard）。

@@ -32,8 +32,13 @@ extern void MSHookMessageEx(Class cls, SEL selector, IMP replacement, IMP *resul
 }
 #endif
 
+#define CAC_TWEAK_VERSION "1.0.0"
+
 #pragma mark - 日志
 
+// 正式版（默认）：日志能力整体编译期消除 —— 不建文件、不写 NSLog、拦截函数里不做任何字符串处理。
+// 调试版（-DCAC_DEBUG）：写 <容器>/tmp/CAC.log + NSLog（含每次命中）与安装报告，用于排障和适配新版本。
+#ifdef CAC_DEBUG
 static FILE *gLogFile = NULL;
 static char gTmpDir[512] = {0};
 
@@ -48,15 +53,6 @@ static void CACOpenLog(void)
     gLogFile = fopen(path, "a");
 }
 
-// 分级日志：
-//  - 正式版（默认）：只写安装报告（每次启动覆盖）与错误，不写命中日志；
-//  - 调试版（-DCAC_DEBUG）：额外写每次命中，用于排障与适配新版本。
-#ifdef CAC_DEBUG
-#define CACLogHit(...) CACLog(__VA_ARGS__)
-#else
-#define CACLogHit(...) do { } while (0)
-#endif
-
 static void CACLog(const char *fmt, ...)
 {
     char line[1024];
@@ -68,6 +64,7 @@ static void CACLog(const char *fmt, ...)
     if (!gLogFile) CACOpenLog();
     if (gLogFile) { fprintf(gLogFile, "%s\n", line); fflush(gLogFile); }
 }
+#define CACLogHit(...) CACLog(__VA_ARGS__)
 
 static void CACReportReset(void)
 {
@@ -75,7 +72,7 @@ static void CACReportReset(void)
     if (!gTmpDir[0]) return;
     char path[600];
     snprintf(path, sizeof(path), "%s/CAC_install_report.txt", gTmpDir);
-    FILE *f = fopen(path, "w");   // 每次启动覆盖，避免无限增长
+    FILE *f = fopen(path, "w");
     if (f) fclose(f);
 }
 
@@ -86,9 +83,7 @@ static void CACReport(const char *fmt, ...)
     va_start(ap, fmt);
     vsnprintf(line, sizeof(line), fmt, ap);
     va_end(ap);
-#ifdef CAC_DEBUG
     CACLog("%s", line);
-#endif
     if (!gTmpDir[0]) CACOpenLog();
     if (!gTmpDir[0]) return;
     char path[600];
@@ -97,7 +92,23 @@ static void CACReport(const char *fmt, ...)
     if (f) { fprintf(f, "%s\n", line); fclose(f); }
 }
 
+#else  // 正式版
+
+// 所有日志入口在编译期变成空语句：调用点连参数都不再求值。
+static void CACReportReset(void) {}
+#define CACLog(...)        do { } while (0)
+#define CACLogHit(...)     do { } while (0)
+#define CACReport(...)     do { } while (0)
+
+#endif
+
 #pragma mark - hook 原语
+
+#ifdef CAC_DEBUG
+#define CAC_HIT_BUMP(h) do { (h)++; } while (0)
+#else
+#define CAC_HIT_BUMP(h) do { } while (0)
+#endif
 
 static BOOL CACHasInstanceMethod(Class cls, const char *selName)
 {
@@ -108,13 +119,14 @@ static BOOL CACHasInstanceMethod(Class cls, const char *selName)
 /// 命中后返回 0（BOOL/int 型判定方法）。
 static BOOL CACHookReturnZero(const char *clsName, const char *selName, const char *tag)
 {
+    (void)tag;
     Class cls = NSClassFromString([NSString stringWithUTF8String:clsName]);
     if (!cls) { CACReport("%s: MISS class %s", tag, clsName); return NO; }
     if (!CACHasInstanceMethod(cls, selName)) { CACReport("%s: MISS method -%s", tag, selName); return NO; }
-    __block int hits = 0;
+    __block int hits __attribute__((unused)) = 0;
     IMP orig = NULL;
     MSHookMessageEx(cls, sel_registerName(selName), imp_implementationWithBlock(^long(id self) {
-        hits++;
+        CAC_HIT_BUMP(hits);
         CACLogHit("%s HIT(%d)", tag, hits);
         return 0;
     }), &orig);
@@ -128,10 +140,10 @@ static BOOL CACHookReturnNil(const char *clsName, const char *selName, const cha
     Class cls = NSClassFromString([NSString stringWithUTF8String:clsName]);
     if (!cls) { CACReport("%s: MISS class %s", tag, clsName); return NO; }
     if (!CACHasInstanceMethod(cls, selName)) { CACReport("%s: MISS method -%s", tag, selName); return NO; }
-    __block int hits = 0;
+    __block int hits __attribute__((unused)) = 0;
     IMP orig = NULL;
     MSHookMessageEx(cls, sel_registerName(selName), imp_implementationWithBlock(^id(id self) {
-        hits++;
+        CAC_HIT_BUMP(hits);
         CACLogHit("%s HIT(%d) -> nil", tag, hits);
         return nil;
     }), &orig);
@@ -142,15 +154,15 @@ static BOOL CACHookReturnNil(const char *clsName, const char *selName, const cha
 /// 命中后丢弃参数再调原实现（数据灌入型方法）。
 static BOOL CACHookDropArg(const char *clsName, const char *selName, const char *tag_)
 {
-    NSString *tagS = [NSString stringWithUTF8String:tag_];
-    const char *tag = tagS.UTF8String;
+    (void)tag_;
+    const char *tag __attribute__((unused)) = tag_;
     Class cls = NSClassFromString([NSString stringWithUTF8String:clsName]);
     if (!cls) { CACReport("%s: MISS class %s", tag, clsName); return NO; }
     if (!CACHasInstanceMethod(cls, selName)) { CACReport("%s: MISS method -%s", tag, selName); return NO; }
     __block IMP orig = NULL;
-    __block int hits = 0;
+    __block int hits __attribute__((unused)) = 0;
     MSHookMessageEx(cls, sel_registerName(selName), imp_implementationWithBlock(^void(id self, id arg) {
-        hits++;
+        CAC_HIT_BUMP(hits);
         CACLogHit("%s HIT(%d) (arg dropped)", tag, hits);
         if (orig) ((void (*)(id, SEL, id))orig)(self, sel_registerName(selName), nil);
     }), &orig);
@@ -164,15 +176,15 @@ static BOOL CACHookDropArg(const char *clsName, const char *selName, const char 
 /// 命中时直接以 nil 作为结果回调，让调用方走“无广告”分支。
 static BOOL CACHookBlockArg(const char *clsName, const char *selName, unsigned nblocks, const char *tag_)
 {
-    NSString *tagS = [NSString stringWithUTF8String:tag_];
-    const char *tag = tagS.UTF8String;
+    (void)tag_;
+    const char *tag __attribute__((unused)) = tag_;
     Class cls = NSClassFromString([NSString stringWithUTF8String:clsName]);
     if (!cls) { CACReport("%s: MISS class %s", tag, clsName); return NO; }
     if (!CACHasInstanceMethod(cls, selName)) { CACReport("%s: MISS method -%s", tag, selName); return NO; }
     __block IMP orig = NULL;
-    __block int hits = 0;
+    __block int hits __attribute__((unused)) = 0;
     IMP block = imp_implementationWithBlock(^void(id self, id b0, id b1) {
-        hits++;
+        CAC_HIT_BUMP(hits);
         CACLogHit("%s HIT(%d) -> nil callback", tag, hits);
         if (nblocks > 0 && b0) ((void (^)(id))b0)(nil);
     });
@@ -184,16 +196,16 @@ static BOOL CACHookBlockArg(const char *clsName, const char *selName, unsigned n
 /// 观测型 hook：只记录命中，不改变任何返回值（用于定位渲染宿主）。
 static BOOL CACHookObserve(const char *clsName, const char *selName, const char *tag_)
 {
-    NSString *tagS = [NSString stringWithUTF8String:tag_];
-    const char *tag = tagS.UTF8String;
+    (void)tag_;
+    const char *tag __attribute__((unused)) = tag_;
     Class cls = NSClassFromString([NSString stringWithUTF8String:clsName]);
     if (!cls) { CACReport("%s: MISS class %s", tag, clsName); return NO; }
     if (!CACHasInstanceMethod(cls, selName)) { CACReport("%s: MISS method -%s", tag, selName); return NO; }
     __block IMP orig = NULL;
-    __block int hits = 0;
+    __block int hits __attribute__((unused)) = 0;
     SEL sel = sel_registerName(selName);
     IMP block = imp_implementationWithBlock(^id(id self) {
-        hits++;
+        CAC_HIT_BUMP(hits);
         CACLogHit("%s HIT(%d)", tag, hits);
         return orig ? ((id (*)(id, SEL))orig)(self, sel) : nil;
     });
@@ -518,16 +530,16 @@ static void CACInstallSplashRender(void)
         for (int i = 0; vp[i]; i++) {
             if (!CACHasInstanceMethod(vc, vp[i])) { CACReport("SPLASH.VC: MISS -%s", vp[i]); continue; }
             __block IMP orig = NULL;
-            __block int hits = 0;
+            __block int hits __attribute__((unused)) = 0;
             const char *tag = vp[i];
             if (tag[strlen(tag) - 1] == ':') {
                 MSHookMessageEx(vc, sel_registerName(tag), imp_implementationWithBlock(^void(id self, id arg) {
-                    hits++; CACLog("SPLASH.VC -%s HIT(%d)", tag, hits);
+                    CAC_HIT_BUMP(hits); CACLog("SPLASH.VC -%s HIT(%d)", tag, hits);
                     if (orig) ((void (*)(id, SEL, id))orig)(self, sel_registerName(tag), arg);
                 }), &orig);
             } else {
                 MSHookMessageEx(vc, sel_registerName(tag), imp_implementationWithBlock(^void(id self) {
-                    hits++; CACLog("SPLASH.VC -%s HIT(%d)", tag, hits);
+                    CAC_HIT_BUMP(hits); CACLog("SPLASH.VC -%s HIT(%d)", tag, hits);
                     if (orig) ((void (*)(id, SEL))orig)(self, sel_registerName(tag));
                 }), &orig);
             }
@@ -571,10 +583,12 @@ __attribute__((constructor)) static void CACInit(void)
     @autoreleasepool {
         NSString *bid = NSBundle.mainBundle.bundleIdentifier;
         if (![bid isEqualToString:@"com.coolapk.app"]) return;
+#ifdef CAC_DEBUG
         NSString *ver = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
         NSString *build = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"];
+#endif
         CACReportReset();
-        CACReport("==== CoolapkADFree install @ %s (%@/%@) ====", bid.UTF8String, ver, build);
+        CACReport("==== CoolapkADFree %s install @ %s (%@/%@) ====", CAC_TWEAK_VERSION, bid.UTF8String, ver, build);
 #ifdef CAC_FEEDPROBE2
         CACInstallFeedProbe2();
         CACReport("==== feed probe2 install report end ====");
